@@ -1,0 +1,306 @@
+---
+title: "Caitlin Bumby's Scale Project"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: inline
+---
+
+##Data Description
+Data were collected in the Passe A Loutre Wildlife State Management area in the Mississippi River Delta Region in Louisiana. 80 individuals of *Phragmites australis* were collected at two separate sites, each with two paired plots: One of the Delta-type haplotype (M1) and one of the European-type haplotype (M). At the time of collection, water depth (in cm) for each ramet as well as stand density per `1/4m^2` (number of live individuals, number of dead individuals, total number of individuals) were also collected. In the lab, individual stem height (in cm) was measured. The average number of scales insects per node was determined by counting the number of scales every third node and then averaging that number. Additionally, the number of nodes per plant was collected. The number of scales were counted by hand for twelve of the samples (EU2-1 through EU2-6 and D2-1 through D2-6) which is why there is a counted_scales column. 
+
+Goal is to determine whether there is a significant difference between the haplotypes in terms of the number of scale insects per individual. From there, I would like to explore some of the other data collected regarding stand densities, and water depth, in terms of infestedness.
+
+```{r echo = FALSE, message = FALSE}
+library(ggplot2)
+library(tidyverse)
+
+#load in data
+phrag_cleaned <- read.csv("data_output/phrag_cleaned.csv")
+```
+
+###Class Tasks
+
+##Site Visualization
+* Create map with site coordinates overlayed. This is still a major work in progress and this code doesn't currently run.
+```{r eval = FALSE}
+#use most recent version of ggmap from github
+library(devtools)
+devtools::install_github("dkahle/ggmap", ref = "tidyup")
+
+key <- "AIzaSyBdtNT7rjldQTC7NgmvjxMy9rZzCIjiIFA"
+register_google(key = key)
+
+site_coordinates <- phrag_cleaned %>% 
+  select(Site, Haplotype, Lat, Long) %>% #Select the columns containing the coordinates with their corresponding site number and haplotype
+  filter(!duplicated(Lat,Long)) #remove duplicates so you wind up with a table containing the coordinates for the 4 plots
+
+#Create a theme object to remove axes and tickmarks
+ditch_the_axes <- theme(
+  axis.text = element_blank(),
+  axis.line = element_blank(),
+  axis.ticks = element_blank(),
+  panel.border = element_blank(),
+  panel.grid = element_blank(),
+  axis.title = element_blank()
+  )
+
+#Create map of Louisiana
+states <- map_data("state")
+LA_data <- subset(states, region == "louisiana")
+LA_map <- ggplot(data = LA_data, mapping = aes(x = long, y = lat, group = group)) +
+  coord_fixed(1.3) +
+  geom_polygon(color = "black", fill = "gray") +
+  ditch_the_axes
+
+#Create separate map of Plaquemines Parish for inset
+counties <- map_data("county")
+LA_county <- subset(counties, region == "louisiana")
+plaquemines_data <- subset(LA_county, subregion == "plaquemines")
+plaquemines_map <- ggplot(data = plaquemines_data, mapping = aes(x = long, y = lat, group = group)) +
+  coord_fixed(1.3) +
+  geom_polygon(color = "black", fill = "gray") +
+  geom_point(data = site_coordinates, aes(x = Long, y = Lat, color = Haplotype, group = Haplotype), size = 2.5)
+  
+```
+
+##Data Visualization
+* Check data for normal distribution first by creating histograms of scale counts and scales per cm
+```{r}
+#create a table containing the mean scale counts for both haplotypes
+meancounts <- phrag_cleaned %>% 
+  group_by(Haplotype) %>% 
+  summarize(mean = mean(scale_counts))
+
+#create a histogram showing the distribution of scale counts for each haplotype
+scalecount_distribution <- ggplot(data = phrag_cleaned, mapping = aes(scale_counts, color = Haplotype, fill = Haplotype)) +
+  geom_histogram(binwidth = 80) +
+  labs(title = "Histogram of Scale Counts") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5))+
+  facet_grid(Haplotype ~ .)
+
+print(scalecount_distribution)
+```
+Scale counts are clearly right-skewed for haplotype M, and rather uniform for haplotype M1. 
+
+```{r warning = FALSE}
+#create table containing mean scales per centimeter for both haplotypes
+mean_per_cm <- phrag_cleaned %>% 
+  group_by(Haplotype) %>% 
+  summarize(mean = mean(scale_per_cm))
+
+#create a histogram showing distribution of scale_per_cm for both haplotypes
+scalepercm_distribution <- ggplot(data = phrag_cleaned, mapping = aes(scale_per_cm, color = Haplotype, fill = Haplotype)) +
+  geom_histogram(binwidth = 0.1) + 
+  labs(title = "Histogram of Scales per Centimeter") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5))+
+  facet_grid(Haplotype ~ .)
+
+print(scalepercm_distribution)
+```
+There is a similar skewness for scales per centimeter. M is right-skewed and M1 looks relatively uniform.
+
+Create qqplots to also visualize data for distribution. Plots compare theoretical distribution to actual sample data and goodness of fit is an indicator of distribution.
+```{r}
+scalecount_qq <- ggplot(data = phrag_cleaned, mapping = aes(sample = scale_counts, color = Haplotype, fill = Haplotype)) +
+  geom_qq() +
+  geom_qq_line() +
+  labs(title = "Q-Q Plot for Scale Counts for Both Haplotypes") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5))
+
+print(scalecount_qq)
+```
+The sample fits the theoretical line relatively well
+
+##Statistical Tests
+#Haplotype vs Haplotype
+* Compare haplotypes for scale_per_cm and scale_counts
+```{r}
+#Create new tibble where values are grouped by Haplotype
+phrag_haplotype_ttest <- phrag_cleaned %>% 
+  group_by(Haplotype) %>% 
+  as.data.frame()
+#perform a t-test comparing the mean number of scales for each of the two haplotypes and save results
+scale_counts_haplotype_ttest <- t.test(scale_counts ~ Haplotype, data = phrag_haplotype_ttest)
+per_cm_haplotype_ttest <- t.test(scale_per_cm ~ Haplotype, data = phrag_haplotype_ttest)
+```
+```{r echo = FALSE}
+#print the results for the two ttests
+print(scale_counts_haplotype_ttest)
+print(per_cm_haplotype_ttest)
+```
+Results: Both t-tests returned statistically significant results, which indicates that there is a difference in the mean number of scales per plant and mean scales per cm between haplotypes M and M1. One thing I found was that it in order to get a t-test to run from a tibble, it needs to be transformed into a data frame using `as.data.frame()` prior to running the t-test.
+
+```{r}
+#visualize data using a barplot
+#number of scales per ramet
+#Create a tibble of the summary stats to include error bars
+counts.summary <- phrag_cleaned %>% 
+  select(Haplotype, scale_counts) %>%
+  group_by(Haplotype) %>% 
+  summarize(mean_scalecounts = mean(scale_counts), se_scalecounts = sd(scale_counts)/sqrt(length(scale_counts)))
+
+scale_barplot <- ggplot(data = counts.summary, mapping = aes(x = Haplotype, y = mean_scalecounts, color = Haplotype, fill = Haplotype)) + 
+  geom_col(color = "black") +
+  geom_errorbar(aes(ymin = mean_scalecounts - se_scalecounts, ymax = mean_scalecounts + se_scalecounts), width = 0.2, position = position_dodge(0.9), color = "black") +
+  labs(x = "Haplotype", y = "Number of Scales", 
+       title = "Mean Number of Scales") +
+  theme_classic() +
+  scale_fill_manual(values = c('#999999', 'gray82'))
+
+#scales per cm
+#Create a tibble of the summary stats to include error bars
+density.summary <- phrag_cleaned %>% 
+  select(Haplotype, scale_per_cm) %>%
+  group_by(Haplotype) %>% 
+  summarize(mean_scalepercm = mean(scale_per_cm), se_scalepercm = sd(scale_per_cm)/sqrt(length(scale_per_cm)))
+
+scale_per_cm_barplot <- ggplot(data = density.summary, mapping = aes(x = Haplotype, y = mean_scalepercm, fill = Haplotype)) +
+  geom_col(color = "black") +
+  geom_errorbar(aes(ymin = mean_scalepercm - se_scalepercm, ymax = mean_scalepercm + se_scalepercm), width = 0.2, position = position_dodge(0.9),color = "black") +
+  labs(x = "Haplotype", y = "Scales Per Centimeter", 
+       title = "Scale Density") +
+  theme_classic() +
+  scale_fill_manual(values = c('#999999', 'gray82'))
+```
+
+```{r}
+#create grid to visualize both violin plots next to one another 
+library(gridExtra)
+combinedplot <- grid.arrange(scale_barplot, scale_per_cm_barplot, ncol = 2, widths = c(10,10))
+```
+
+#Site vs Site
+* Determine whether there is a difference in total infestedness between the two sites. Compare sites for scale_per_cm and scale_counts
+```{r}
+#Create new tibble where values are grouped by site
+phrag_site_ttest <- phrag_cleaned %>% 
+  group_by(Site) %>% 
+  as.data.frame()
+#perform a t-test comparing the mean number of scales for each of the two haplotypes and save results
+scale_counts_site_ttest <- t.test(scale_counts ~ Site, data = phrag_site_ttest)
+per_cm_site_ttest <- t.test(scale_per_cm ~ Site, data = phrag_site_ttest)
+```
+```{r echo = FALSE}
+#print the results for the two ttests
+print(scale_counts_site_ttest)
+print(per_cm_site_ttest)
+```
+Results: There was not a significant difference in scale counts and scales per centimeter per site which may be an indication that infestedness is not dependent on abiotic factors such as salinity and water depth rather than haplotype.
+
+```{r}
+phrag_cleaned$Site <- as.factor(phrag_cleaned$Site) #Change site numbers to factor with 2 levels (1 and 2)
+```
+
+```{r}
+#visualize data using a violin plot
+site_violin <- ggplot(data = phrag_cleaned, mapping = aes(x = Site, y = scale_counts, color = Site, fill = Site)) + 
+  geom_violin(color = "black") +
+  geom_boxplot(width = 0.1, color = "black") +
+  labs(x = "Site", y = "Number of Scales", 
+       title = "Number of Scale Insects per Ramet for Each Site") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5))
+
+site_per_cm_violin <- ggplot(data = phrag_cleaned, mapping = aes(x = Site, y = scale_per_cm, color = Site, fill = Site)) + 
+  geom_violin(color = "black") +
+  geom_boxplot(width = 0.1, color = "black") +
+  labs(x = "Site", y = "Number of Scales per Centimeter", 
+       title = "Number of Scales per Centimeter for Each Site") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+#create grid to visualize both violin plots next to one another 
+grid.arrange(site_violin, site_per_cm_violin, ncol = 2, widths = c(10,10))
+```
+
+#Stem Height
+* Determine whether there is a difference in stem height between the two haplotypes.
+```{r}
+#perform a t-test comparing the stem heights for each of the two haplotypes and save results
+phrag_height_ttest <- t.test(Stem_Height ~ Haplotype, data = phrag_cleaned)
+```
+```{r echo = FALSE}
+#print the results for the two ttests
+print(phrag_height_ttest)
+```
+RESULTS: Two sample t-test showed there was a significant difference in height between the two haplotypes with M1 being taller
+
+#Stand Density
+* Determine whether there is a difference in stand density (individuals per 1/4m^2) between the two haplotypes.
+```{r}
+#perform a t-test comparing the stem heights for each of the two haplotypes and save results
+phrag_density_ttest <- t.test(Total ~ Haplotype, data = phrag_cleaned)
+```
+```{r echo = FALSE}
+#print the results for the two ttests
+print(phrag_density_ttest)
+```
+RESULTS: There was no statistical difference between density (individuals per 1/4m^2) between the two haplotypes.
+
+* Determine whether there is a difference in ratio of dead individuals per 1/4m^2 between the two haplotypes.
+```{r}
+#perform a t-test comparing the stem heights for each of the two haplotypes and save results
+dead_ratio <- phrag_cleaned %>% 
+  select(Haplotype, Dead, Living, Total) %>% 
+  mutate(ratio = Dead/Total)
+
+phrag_deadratio_ttest <- t.test(ratio ~ Haplotype, data = dead_ratio)
+```
+```{r echo = FALSE}
+#print the results for the two ttests
+print(phrag_deadratio_ttest)
+```
+RESULTS: There was a significant difference between the two haplotypes when comparing the ratio of dead to total individuals per 1/4 m^2. Haplotype M1 had a higher ratio of dead to total individuals.
+
+* Do an ANOVA test to compare both site AND haplotype to one another in one test.
+This is a 2x2 design in that the factors are Site and Haplotype and infestedness is the measurement being taken. This requires a two-way interaction ANOVA.
+```{r}
+scale_count_aov = aov(phrag_cleaned$scale_counts ~ Site * Haplotype, data = phrag_cleaned) #do the analysis of variance
+summary(scale_count_aov) #show the summary table
+print(model.tables(scale_count_aov, "means"), digits=3) #report the means and the number of subjects/cell
+```
+Results: Two-way ANOVA showed there was no significant difference between the sites in terms of infestedness. Additionally, there was no significant difference when the interaction between site and haplotype were compared in terms of infestedness however, there was a significant difference overall between the two haplotypes.
+
+```{r}
+#visualize all four plots together using violin plot
+aov_boxplot <-  ggplot(data = phrag_cleaned, mapping = aes(x = Site, y = scale_counts, fill = Haplotype)) +
+  geom_boxplot() +
+  labs(x = "Site", y = "Number of Scales", 
+       title = "Number of Scale Insects per Ramet for Each Site") +
+  theme_bw() +
+  theme(panel.grid = element_blank(), plot.title = element_text(hjust = 0.5))
+
+print(aov_boxplot)
+```
+
+###ANCOVA where water depth is covariate to haplotype for infestedness
+```{r}
+scale_count_depth_aov = aov(phrag_cleaned$scale_counts ~ Haplotype * Depth, data = phrag_cleaned) #do the analysis of variance
+summary(scale_count_depth_aov) #show the summary table
+print(model.tables(scale_count_depth_aov, "means"), digits=3) #report the means and the number of subjects/cell
+```
+
+###ANCOVA where stem height is covariate to haplotype for infestedness?
+```{r}
+scale_count_height_aov = aov(phrag_cleaned$scale_counts ~ Haplotype * Stem_Height, data = phrag_cleaned) #do the analysis of variance
+summary(scale_count_height_aov) #show the summary table
+print(model.tables(scale_count_height_aov, "means"), digits=3) #report the means and the number of subjects/cell
+```
+RESULTS: There is no significant interaction between haplotype and stem height in terms of infestedness though there is a statistically significant difference between the two haplotypes
+
+##Mixed Effect Model with Site as Random Effect
+```{r}
+library(nlme)
+
+scale_per_cm_lme <- lme()
+```
+
