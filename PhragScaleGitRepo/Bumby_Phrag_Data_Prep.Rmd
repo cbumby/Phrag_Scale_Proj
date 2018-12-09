@@ -1,0 +1,46 @@
+---
+title: "Data Preparation Script"
+author: "Caitlin Bumby"
+output: html_document
+---
+
+Data came from a trip to the Birdfoot Delta in Southern Louisiana on September 17, 2018. They were collected and entered into spreadsheet by Caitlin Bumby.
+
+* Figure out best way to quantify number of scales
+Decided on `mutate(scale_inferred = ((Stem_Height / Nodes)* Node_scale_avg))` 
+
+```{r echo = FALSE, message = FALSE}
+library(ggplot2)
+library(tidyverse)
+
+phrag_scale <- read.csv("./data/PhragScaleProject.csv")
+
+#Generate new `tibble` containing pertinent columns and create new columns for # of scale per individual and average scale per cm.
+phrag_cleaned <- phrag_scale %>% 
+  select(Lat, Long, Site, Sample_ID, Living, Dead, Total, Depth, Stem_Height, Node_scale_avg, Nodes, counted_scales, Haplotype) %>%
+  mutate(scale_inferred = Nodes * Node_scale_avg) %>% #create column of the inferred number of scales per individual, standardized by stem height.
+  mutate(scale_counts = counted_scales %>% is.na %>% ifelse(scale_inferred, counted_scales)) %>%  #combine counted_scales column with scale_inferred column
+  select(-c(Node_scale_avg, Nodes, counted_scales, scale_inferred)) %>% #remove unnecessary columns
+  mutate(scale_per_cm = scale_counts / Stem_Height) #create column of scales per cm
+
+#save cleaned data to a different directory than the raw data
+write_csv(phrag_cleaned, path = "./data_output/phrag_cleaned.csv")
+```
+
+##Data Summary
+```{r echo = FALSE}
+head(phrag_cleaned)
+```
+
+* Create a table containing 10 samples from each site that you want to do metagenomic analysis on. Tables will be based on a continuum of "infestedness."
+```{r}
+#change `phrag_cleaned` back to a tbl
+as.tbl(phrag_cleaned)
+
+meta_samples <- phrag_cleaned %>% 
+  select(Sample_ID, Site, Haplotype, scale_per_cm) %>% #create tbl containing just Sample_ID, Site, Haplotype and scale_counts
+  arrange(desc(scale_per_cm)) %>% #arrange all rows in descending order of scale_per_cm
+  arrange(Haplotype) %>% #arrange by haplotype
+  arrange(Site) %>% #arrange by site
+  filter(row_number() %% 2 == 0) #select only the even rows
+```
